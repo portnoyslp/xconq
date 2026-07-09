@@ -2745,7 +2745,9 @@ launch_game(void)
     run_synth_methods();
     final_init();
     assign_players_to_sides();
-    place_legends(dside);
+    if (dside != NULL) {
+	place_legends(dside);
+    }
     /* Get the displays set up, but don't draw anything yet. */
     init_all_displays();
     /* Now bring up the init data on each display. */

@@ -54,7 +54,6 @@ if(XCONQ_UI_SDL)
     if(NOT SDL3_FOUND)
         message(WARNING "SDL3 not found (try libsdl3-dev); skipping the SDL interface")
     endif()
-    find_package(X11)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -133,7 +132,7 @@ endfunction()
 
 add_subdirectory(kernel)
 
-if(XCONQ_UI_SDL AND SDL3_FOUND AND X11_FOUND)
+if(XCONQ_UI_SDL AND SDL3_FOUND)
     add_subdirectory(sdl)
 endif()
 

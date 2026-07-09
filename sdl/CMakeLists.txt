@@ -16,6 +16,6 @@ target_include_directories(sdlconq PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR})
 target_link_libraries(sdlconq PRIVATE
-    conq SDL3::SDL3 X11::Xext X11::Xmu X11::X11 m)
+    conq SDL3::SDL3 m)
 
 install(TARGETS sdlconq RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
