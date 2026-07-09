@@ -62,12 +62,6 @@ endif()
 
 check_include_file_cxx(dirent.h HAVE_DIRENT_H)
 
-# On macOS? (CMake's builtin APPLE var; named to match the rest of this
-# repo's acdefs.h platform macros like UNIX/WIN32.)
-if(APPLE)
-    set(__MACOS__ 1)
-endif()
-
 configure_file(kernel/acdefs.h.in   ${CMAKE_BINARY_DIR}/include/acdefs.h)
 
 set(XCONQ_VERSION_MAIN "${PROJECT_VERSION}")

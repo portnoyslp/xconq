@@ -131,7 +131,7 @@ add_default_player(void)
     
     player->name = getenv("USER");
     player->configname = getenv("XCONQCONFIG");
-#ifdef __MACOS__
+#ifdef APPLE
     /* macOS has no $DISPLAY; SDL3 picks its own (Cocoa) backend.  Use a
        placeholder so side_wants_display() sees a local player as wanting
        one, same as sdlwin32.cc's "WinSDL" for the (currently unbuilt)
