@@ -10,6 +10,9 @@ any later version.  See the file COPYING.  */
 /* On a Unix-ish platform? */
 #cmakedefine UNIX 1
 
+/* On macOS? */
+#cmakedefine __MACOS__ 1
+
 /* Is 'dirent.h' available? */
 #cmakedefine HAVE_DIRENT_H 1
 
