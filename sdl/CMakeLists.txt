@@ -17,5 +17,8 @@ target_include_directories(sdlconq PRIVATE
     ${CMAKE_SOURCE_DIR})
 target_link_libraries(sdlconq PRIVATE
     conq SDL3::SDL3 m)
+if(SDL3_ttf_FOUND)
+    target_link_libraries(sdlconq PRIVATE SDL3_ttf::SDL3_ttf)
+endif()
 
 install(TARGETS sdlconq RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

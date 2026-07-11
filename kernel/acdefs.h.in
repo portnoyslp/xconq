@@ -16,3 +16,5 @@ any later version.  See the file COPYING.  */
 /* Is 'dirent.h' available? */
 #cmakedefine HAVE_DIRENT_H 1
 
+/* Is SDL3_ttf available, for real TrueType font rendering in sdlconq? */
+#cmakedefine HAVE_SDL3_TTF 1

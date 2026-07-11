@@ -27,7 +27,8 @@ jobs:
       run: |
         sudo apt update
         sudo apt install -y libxmu-dev libx11-dev libxext-dev \
-          libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev clang
+          libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev \
+          libfreetype-dev libharfbuzz-dev clang
     - name: build and install SDL3
       # ubuntu-latest (24.04 as of writing) has no libsdl3-dev package; SDL3
       # only landed in Ubuntu starting with 25.04. Build the pinned stable
@@ -39,6 +40,18 @@ jobs:
         cmake -B /tmp/SDL3-build -S /tmp/SDL3-3.4.12 -DCMAKE_BUILD_TYPE=Release
         cmake --build /tmp/SDL3-build -j$(nproc)
         sudo cmake --install /tmp/SDL3-build
+        sudo ldconfig
+    - name: build and install SDL3_ttf
+      # Same story as SDL3 above: no libsdl3-ttf-dev package on ubuntu-latest
+      # yet. freetype/harfbuzz themselves come from apt (installed above),
+      # so this only needs to build the thin SDL3_ttf layer itself.
+      run: |
+        curl -fsSL -o /tmp/SDL3_ttf.tar.gz \
+          https://github.com/libsdl-org/SDL_ttf/releases/download/release-3.2.2/SDL3_ttf-3.2.2.tar.gz
+        tar -xzf /tmp/SDL3_ttf.tar.gz -C /tmp
+        cmake -B /tmp/SDL3_ttf-build -S /tmp/SDL3_ttf-3.2.2 -DCMAKE_BUILD_TYPE=Release -DSDLTTF_VENDORED=OFF
+        cmake --build /tmp/SDL3_ttf-build -j$(nproc)
+        sudo cmake --install /tmp/SDL3_ttf-build
         sudo ldconfig
     - name: configure
       run: cmake -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
@@ -140,19 +153,22 @@ jobs:
 
   macos:
     runs-on: macos-latest
-    # sdlconq also links directly against Xlib/Xmu/Xext (see sdl/CMakeLists.txt),
-    # which needs XQuartz; that's real porting work, so it's scoped out here and
-    # the top-level CMakeLists' X11_FOUND gate just skips the SDL UI. See
-    # MODERNIZATION-PLAN.md §3.2 note. continue-on-error stays on until this job
-    # has a track record of being green.
+    # sdlconq no longer links X11/Xlib at all (it never actually called any
+    # Xlib/Xmu/Xext API; that link line was vestigial from the SDL1.2->2->3
+    # migrations) and no longer requires XQuartz to build or run -- see the
+    # native-macos branch history. continue-on-error stays on until this job
+    # has a longer track record of being green.
     continue-on-error: true
 
     steps:
     - uses: actions/checkout@v4
     - name: install dependencies
-      # sdl3 is the only thing to fetch (SDL 3, not the old sdl12-compat shim
-      # -- see MODERNIZATION-PLAN.md §4).
-      run: brew install sdl3
+      # sdl3 is the SDL UI itself (not the old sdl12-compat shim -- see
+      # MODERNIZATION-PLAN.md §4); sdl3_ttf is optional (real TrueType font
+      # rendering -- see sdl/sdlscreen.cc's draw_string()) and falls back to
+      # a built-in bitmap font if absent, so it's installed here for full
+      # coverage but isn't load-bearing.
+      run: brew install sdl3 sdl3_ttf
     - name: configure
       # Homebrew's prefix (/opt/homebrew on Apple Silicon runners) isn't on
       # CMake's built-in search path, so find_package(SDL3) needs a hint.

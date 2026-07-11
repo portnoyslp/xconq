@@ -62,6 +62,9 @@ int default_draw_terrain_images;
 int default_draw_transitions;
 char *default_font_family;
 int default_font_size;
+#ifdef HAVE_SDL3_TTF
+TTF_Font *default_font;
+#endif
 
 int use_stdio;
 
@@ -231,6 +234,24 @@ initial_ui_init(void)
 
     SDL_SetSurfaceColorKey(small_font, true,
 		    SDL_MapSurfaceRGB(small_font, 255, 0, 255));
+
+#ifdef HAVE_SDL3_TTF
+    /* Real TrueType rendering, if a usable font was found (see
+       default_font_path() in sdlunix.cc).  Falls back to small_font (the
+       bitmap font just loaded above) if this doesn't pan out, so a missing
+       or unopenable font is a warning, not a fatal error. */
+    if (!TTF_Init()) {
+	init_warning("could not initialize SDL3_ttf, using the built-in bitmap font");
+    } else if (!empty_string(default_font_family)) {
+	if (default_font_size <= 0)
+	  default_font_size = 14;
+	default_font = TTF_OpenFont(default_font_family, (float)default_font_size);
+	if (default_font == NULL) {
+	    init_warning("could not open font \"%s\", using the built-in bitmap font",
+			 default_font_family);
+	}
+    }
+#endif
 
     /* SDL2/3 deliver typed text via SDL_EVENT_TEXT_INPUT events instead of
        a per-key unicode field; start that event source (see
@@ -2715,6 +2736,13 @@ exit_xconq(void)
 	send_quit();
     }
     close_displays();
+#ifdef HAVE_SDL3_TTF
+    if (default_font != NULL) {
+	TTF_CloseFont(default_font);
+	default_font = NULL;
+    }
+    TTF_Quit();
+#endif
     /* Toggle on the OS cursor. */
     SDL_ShowCursor();
     SDL_Quit();

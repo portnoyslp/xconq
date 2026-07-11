@@ -8,6 +8,9 @@ the Free Software Foundation; either version 2, or (at your option)
 any later version.  See the file COPYING.  */
 
 #include <SDL3/SDL.h>
+#ifdef HAVE_SDL3_TTF
+#include <SDL3_ttf/SDL_ttf.h>
+#endif
 
 #include "imf.h"
 #include "ui.h"
@@ -307,6 +310,11 @@ extern SDL_Window *window;
 extern struct a_real_ui *ui;
 
 extern SDL_Surface *small_font;
+extern char *default_font_family;
+extern int default_font_size;
+#ifdef HAVE_SDL3_TTF
+extern TTF_Font *default_font;
+#endif
 
 extern Screen *sscreen;
 

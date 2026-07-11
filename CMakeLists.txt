@@ -54,6 +54,12 @@ if(XCONQ_UI_SDL)
     if(NOT SDL3_FOUND)
         message(WARNING "SDL3 not found (try libsdl3-dev); skipping the SDL interface")
     endif()
+    # Optional: real TrueType font rendering. Without it, sdlconq falls back
+    # to its built-in font.bmp bitmap font, so this doesn't gate the UI.
+    find_package(SDL3_ttf)
+    if(NOT SDL3_ttf_FOUND)
+        message(WARNING "SDL3_ttf not found (try libsdl3-ttf-dev); sdlconq will use its built-in bitmap font")
+    endif()
 endif()
 
 # ---------------------------------------------------------------------------
@@ -61,6 +67,10 @@ endif()
 # ---------------------------------------------------------------------------
 
 check_include_file_cxx(dirent.h HAVE_DIRENT_H)
+
+if(SDL3_ttf_FOUND)
+    set(HAVE_SDL3_TTF 1)
+endif()
 
 configure_file(kernel/acdefs.h.in   ${CMAKE_BINARY_DIR}/include/acdefs.h)
 

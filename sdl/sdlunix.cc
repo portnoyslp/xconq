@@ -19,10 +19,13 @@ int using_sdl;
 int blinking_curunit = FALSE;
 
 #include <unistd.h>
+#include <sys/stat.h>
 
 /* Local function declarations. */
 
 static void accept_all_remotes(void);
+static void parse_font_options(int *argcp, char *argv[]);
+static void resolve_default_font(void);
 
 /* The main program. */
 
@@ -41,6 +44,12 @@ main(int argc, char *argv[])
 #endif /* DEBUGGING */
 	/* Set up empty data structures. */
 	init_data_structures();
+
+	/* -font/-fontsize are sdlconq-only, so consume them (and strip them
+	   out of argv) before the kernel's shared option parser below, which
+	   would otherwise reject them as unrecognized. */
+	parse_font_options(&argc, argv);
+	resolve_default_font();
 
 	parse_command_line(argc, argv, general_options);
 	parse_command_line(argc, argv, variant_options);
@@ -162,6 +171,80 @@ make_default_player_spec(void)
 	strncat(default_player_spec, getenv("DISPLAY"), 
 						   BUFSIZE - strlen(default_player_spec) - 1);
     }
+}
+
+/* Pull -font <path> and -fontsize <points> out of argv (they're SDL-only,
+   the shared kernel option parser doesn't know about them and would treat
+   them as an error), setting default_font_family/default_font_size.  If
+   this build has no SDL3_ttf support, the flags are still consumed (so the
+   program doesn't choke on them) but produce a one-time warning instead of
+   silently doing nothing. */
+
+static void
+parse_font_options(int *argcp, char *argv[])
+{
+    int i, j, argc = *argcp;
+    int saw_font_flag = FALSE;
+
+    for (i = 1; i < argc; ) {
+	if (strcmp(argv[i], "-font") == 0 && i + 1 < argc) {
+	    default_font_family = copy_string(argv[i + 1]);
+	    saw_font_flag = TRUE;
+	    for (j = i; j + 2 < argc; ++j)
+	      argv[j] = argv[j + 2];
+	    argc -= 2;
+	} else if (strcmp(argv[i], "-fontsize") == 0 && i + 1 < argc) {
+	    default_font_size = atoi(argv[i + 1]);
+	    saw_font_flag = TRUE;
+	    for (j = i; j + 2 < argc; ++j)
+	      argv[j] = argv[j + 2];
+	    argc -= 2;
+	} else {
+	    ++i;
+	}
+    }
+    *argcp = argc;
+#ifndef HAVE_SDL3_TTF
+    if (saw_font_flag) {
+	init_warning("this build has no SDL3_ttf support; -font/-fontsize have no effect");
+    }
+#endif
+}
+
+/* Fill in a default TTF font path if -font didn't already set one: Menlo on
+   macOS (there's no $DISPLAY-style query mechanism, just check its known
+   path), or the first of a short list of common distro monospace fonts
+   elsewhere.  Leaves default_font_family NULL (sdlmain.cc's
+   initial_ui_init() then falls back to the bitmap font) if nothing is
+   found. */
+
+static void
+resolve_default_font(void)
+{
+    struct stat statbuf;
+#ifdef APPLE
+    static const char *candidate = "/System/Library/Fonts/Menlo.ttc";
+
+    if (default_font_family == NULL && stat(candidate, &statbuf) == 0)
+      default_font_family = copy_string(candidate);
+#else
+    static const char *candidates[] = {
+	"/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+	"/usr/share/fonts/dejavu/DejaVuSansMono.ttf",
+	"/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+	NULL
+    };
+    int i;
+
+    if (default_font_family != NULL)
+      return;
+    for (i = 0; candidates[i] != NULL; ++i) {
+	if (stat(candidates[i], &statbuf) == 0) {
+	    default_font_family = copy_string(candidates[i]);
+	    break;
+	}
+    }
+#endif
 }
 
 /* Wait for all the players to join, set up each one as it comes in. */

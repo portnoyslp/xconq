@@ -1082,10 +1082,56 @@ draw_line(SDL_Surface *surf, int sx1, int sy1, int sx2, int sy2, Uint32 col)
     }
 }
 
-/* Display a string in the small font. */
+#ifdef HAVE_SDL3_TTF
 
-void
-draw_string(SDL_Surface *surf, int x0, int y0, const char *str)
+/* TTF equivalent of the bitmap loop below: same '\n'/'\t' handling and the
+   same numlf*16 line spacing, so callers don't need to care which renderer
+   is active.  Unlike the fixed-width bitmap font, line width here comes
+   from the rendered surface itself rather than a fixed per-glyph advance. */
+
+static void
+draw_string_ttf(SDL_Surface *surf, int x0, int y0, const char *str)
+{
+    char linebuf[BUFSIZE];
+    SDL_Color color = {255, 255, 255, 255};
+    SDL_Surface *textsurf;
+    SDL_Rect dst;
+    int i, li = 0, numlf = 0;
+
+    for (i = 0; ; ++i) {
+	if (str[i] == '\0' || str[i] == '\n') {
+	    linebuf[li] = '\0';
+	    if (li > 0) {
+		textsurf = TTF_RenderText_Blended(default_font, linebuf, li, color);
+		if (textsurf != NULL) {
+		    dst.x = x0;  dst.y = y0 + numlf * 16;
+		    dst.w = textsurf->w;  dst.h = textsurf->h;
+		    SDL_BlitSurface(textsurf, NULL, surf, &dst);
+		    SDL_DestroySurface(textsurf);
+		}
+	    }
+	    li = 0;
+	    if (str[i] == '\0')
+	      break;
+	    ++numlf;
+	} else if (str[i] == '\t') {
+	    /* Match the bitmap path below: an unconditional 4-space advance,
+	       not a tab-stop alignment. */
+	    int k;
+	    for (k = 0; k < 4 && li < BUFSIZE - 1; ++k)
+	      linebuf[li++] = ' ';
+	} else if (li < BUFSIZE - 1) {
+	    linebuf[li++] = str[i];
+	}
+    }
+}
+
+#endif /* HAVE_SDL3_TTF */
+
+/* Display a string using the fixed small_font bitmap glyph sheet. */
+
+static void
+draw_string_blit(SDL_Surface *surf, int x0, int y0, const char *str)
 {
     int i, n = 0, x, y;
     SDL_Rect rect1, rect2;
@@ -1110,6 +1156,20 @@ draw_string(SDL_Surface *surf, int x0, int y0, const char *str)
 	SDL_BlitSurface(small_font, &rect1, surf, &rect2);
 	++n;
     }
+}
+
+/* Display a string, via TTF if a font was opened, else the bitmap font. */
+
+void
+draw_string(SDL_Surface *surf, int x0, int y0, const char *str)
+{
+#ifdef HAVE_SDL3_TTF
+    if (default_font != NULL) {
+	draw_string_ttf(surf, x0, y0, str);
+	return;
+    }
+#endif
+    draw_string_blit(surf, x0, y0, str);
 }
 
 /* Lifted from SDL verbatim. */
