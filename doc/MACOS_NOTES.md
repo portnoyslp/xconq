@@ -70,6 +70,143 @@ Local development: `brew install sdl3_ttf` (Linux: build-from-source in CI,
 see `.github/workflows/c-cpp.yml`, since `libsdl3-ttf-dev` doesn't exist as
 a distro package yet either).
 
+## 5. TODO: what a real native macOS UI would need
+
+Investigated the two deleted historical UIs (both removed in `ae1bed8`,
+source only in git history at `ae1bed8~1`) for feature/functionality
+reference: the Xt/Xaw client (`x11/`) and the Tcl/Tk client (`tcltk/`).
+
+**Important correction up front**: neither historical UI was ever actually
+*native* on macOS. Xt/Xaw is raw X11, full stop. The Tcl/Tk client's Mac
+support (`tcltk/tkmac.c`) targeted **classic pre-OS X Mac Toolbox** APIs
+(`FSSpec`, `HGetVol`, classic AppleEvents) and its own `#ifdef MACOSX`
+branch is explicitly commented "not yet enabled (or tested)"; every
+`tcl_platform(platform) == "macintosh"` branch in `tkconq.tcl` (Apple menu,
+Cmd-key accelerators) is dead code on real macOS, where Tk reports platform
+`"unix"`. So: useful below as a list of *what functionality existed*, not
+as a reference for what a native Mac version looked like — that's still
+entirely unbuilt.
+
+Current `sdlconq` state, for comparison: no menu of any kind (pure keyboard
+command dispatch via `sdl/sdlcmd.cc`'s `do_*` functions), and a surprising
+amount of UI-adjacent logic carried over from the Tcl/Tk port is present in
+source but **compiled out** (`#if 0`) rather than reimplemented for SDL —
+`interpret_variants()`, `check_network()`'s stage-transition/chat feedback,
+`schedule_movie()`/`play_movies()`, and `ui_update_state()` (the
+preferences *writer* — see §4 above; reading already works, writing never
+has) are all disabled function bodies in `sdl/sdlmain.cc`. `close_displays()`
+is an empty no-op. `popup_game_dialog()` is a literal stub that draws a
+random-colored rectangle. `unit_research_dialog()` is empty. There is no
+`.app` bundle, `Info.plist`, or `.icns` icon anywhere in the tree — `sdlconq`
+is a bare Unix executable today, not a packaged Mac app.
+
+### Design principle: sdlconq is the shared future UI, not just a Mac vehicle
+
+`MODERNIZATION-PLAN.md` §9 (PROMPT 9.2, lines ~1130-1164) already treats
+`sdl/` as "the long-term evolution" of Xconq's UI — the sole graphical
+client now that Tcl/Tk is gone — and states its intent for it as a
+cross-platform "sleeker, faster replacement," not a macOS-only effort.
+The upstream CI matrix builds `sdlconq` on Linux too
+(`.github/workflows/c-cpp.yml`). So: **most of the TODO items below are
+not macOS-specific** — they're general SDL-port completion work this
+macOS-focused investigation happened to surface. Keep that distinction
+explicit rather than accidentally baking Mac-only assumptions into shared
+code paths.
+
+The pattern already established in §3/§4 above is the model to follow:
+platform-specific behavior isolated behind a narrow `#ifdef APPLE` (or
+equivalent) at the exact point of divergence — the default font path, the
+`displayname` placeholder — with everything else (the TTF rendering path,
+the `-font`/`-fontsize` flags, the fallback logic) written once and shared
+across platforms. Each item below is tagged **(shared)** or
+**(macOS-specific)** accordingly; a few are "shared design, per-platform
+implementation" — worth deciding deliberately rather than defaulting to
+a native-only approach.
+
+Roughly in build order:
+
+- [ ] **App packaging** — **(macOS-specific)**. Wrap `sdlconq` as a real
+  `.app` bundle (`MACOSX_BUNDLE` in `sdl/CMakeLists.txt`, an `Info.plist`,
+  an `.icns` icon). Foundational for a Mac release — everything else feels
+  more like "a real Mac app" once this exists (Dock icon, `Cmd-Q` quit
+  semantics, double-click launch instead of terminal-only). A Linux release
+  would need its own, unrelated packaging work (`.desktop` file, AppImage/
+  Flatpak, etc.) — not reusable from this item, just an analogous one.
+- [ ] **Menu bar** — **(shared design, per-platform implementation)**.
+  Nothing to port 1:1 — Xt/Xaw never had a real menu bar (see the closeup
+  item below), and Tk's menu bar was never Mac-native. But Tk's menu
+  *categories* are a reasonable cross-platform feature checklist: File,
+  Edit, Find, Orders, More Orders, Side, View, Windows, Help (`tkconq.tcl`,
+  menu-setup block from ~line 2654). Several of those were themselves
+  permanently `-state disabled` stubs in Tk too (New/Open Game, Print,
+  Cut/Copy/Paste, Closeup, City Dialog) — don't treat the old menu as a
+  fully-working spec, just a starting checklist. Worth deciding explicitly
+  between an SDL-rendered in-app menu (fully shared code, works identically
+  on Linux) versus a native `NSMenu` via a thin Cocoa shim (better Mac
+  citizenship, but platform-specific code with no Linux equivalent) —
+  don't default into the native-only path without weighing that tradeoff
+  against the Linux-parity goal.
+- [ ] **Preferences dialog + fixing persistence** — **(shared)**. Tk's
+  `popup_preferences_dialog` (`tkconq.tcl:4656-5115`) is the best reference
+  available: a tabbed panel (topic listbox) covering fonts, map display,
+  files, network, and imagery, with live-apply (`ok_preferences`, line
+  5116, pushes font family/size to every open widget immediately). This is
+  exactly the UX the still-dead `default_font_family`/`default_font_size`
+  write path should drive — `ui_update_state()` in `sdl/sdlmain.cc`
+  (currently `#if 0`'d, see §4) is where that plumbing already half-exists
+  and just needs a real caller and a real dialog in front of it. None of
+  this — the prefs file format, the dialog contents, the font-apply logic
+  — is macOS-specific; only the bundled-default-font *value* is (§4's
+  `APPLE`-gated Menlo path), and that's already isolated correctly.
+- [ ] **New-game / setup dialog** — **(shared)**, replacing the
+  `popup_game_dialog()` stub. Both old UIs did this for real: Xt/Xaw's
+  `popup_game()` (`x11/xinit.c:~1040-1330` — game list with blurbs,
+  per-game variant widgets, instructions pane, full player-assignment
+  table) and Tk's `create_newgame_window`/`popup_variants_dialog`/
+  `popup_player_dialog` are both solid references. This also needs
+  `interpret_variants()` (`sdl/sdlmain.cc`, currently `#if 0`'d) actually
+  reimplemented — right now there's no way to configure game options
+  (world size, real-time, economy/supply toggles, etc.) before starting a
+  game at all, on any platform. Pure game-setup logic, no macOS dependency.
+- [ ] **Unit/side closeup windows** — **(shared)**. Both old UIs had these
+  as a real subsystem — Xt/Xaw's `x11/xcloseup.c` (3000+ lines:
+  `UnitCloseup`, `SideCloseup`, `CloseupSummary` types) is the more
+  complete reference; Tk had menu entries for these but they were
+  permanently disabled stubs. Current `sdlconq` has some inline info-panel
+  rendering (`sdl/sdlscreen.cc`'s panel-drawing code) but nothing
+  resembling a real popup closeup window. Nothing about this is
+  platform-specific.
+- [ ] **Help viewer** — **(shared)**. Both old UIs had a genuine
+  hypertext-style browser with topic navigation — Xt/Xaw's `x11/xhelp.c`
+  (`create_help`, `popup_help`/`popdown_help`) and Tk's
+  `popup_help_dialog` (`tkconq.tcl:5454`, hierarchical topic tree via the
+  one actually-used BWidget, `Tree`). Nothing exists in `sdlconq` today
+  beyond terminal text (`print_instructions()`).
+- [ ] **Multiplayer UI feedback** — **(shared)**. `check_network()` in
+  `sdl/sdlmain.cc` is entirely `#if 0`'d — stage-transition dialogs and
+  "player has quit" chat messages are dead. Joining/hosting a game today is
+  CLI-arg only either way (`-x`/`option_game_to_join`/`option_game_to_host`);
+  even the Xt/Xaw man page's own BUGS section flagged this as unfinished
+  upstream, so there's no complete old reference to lean on here — Tk's
+  `popup_chat`/`join_game`/`host_game` (`tkconq.tcl:~1708-1747`) is the
+  more complete (if still minimal) example. Networking itself is already
+  platform-agnostic (`kernel/tp.cc`/`socket.cc`); this is UI plumbing on
+  top of it, equally needed everywhere.
+- [ ] **About/info box** — **(mostly shared; only branding/OS-version
+  detail would differ per platform)**. Absent in both old UIs too (Xt/Xaw
+  only ever printed version/license to the terminal; Tk's "About Xconq…"
+  menu item had no `-command` at all) — not a regression, but still worth
+  adding properly for a polished app rather than perpetuating the gap.
+- [ ] **Sound** — **(shared)**, low priority. Neither historical UI had
+  real audio, only a system beep (`XBell()` in Xt/Xaw, Tcl `bell` in Tk);
+  `sdlconq`'s `beep()` (`sdl/sdlmain.cc`) matches that precedent already
+  (just a `printf`). Not a regression worth prioritizing on any platform.
+- [ ] **Movies/cutscenes** — **(shared)**, lowest priority. `schedule_movie()`/
+  `play_movies()` are `#if 0`'d in `sdl/sdlmain.cc`; unclear either old UI
+  ever finished this either (an unused `movie_sound` enum value in both
+  suggests it was aspirational there too). Probably fine to leave disabled
+  indefinitely unless a specific game module needs it.
+
 ## Verified locally (this Mac, no XQuartz installed)
 
 - `otool -L build/sdl/sdlconq` shows only `libSDL3`/`libSDL3_ttf`/system
