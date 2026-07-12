@@ -183,16 +183,6 @@ Roughly in build order:
   `popup_help_dialog` (`tkconq.tcl:5454`, hierarchical topic tree via the
   one actually-used BWidget, `Tree`). Nothing exists in `sdlconq` today
   beyond terminal text (`print_instructions()`).
-- [ ] **Multiplayer UI feedback** — **(shared)**. `check_network()` in
-  `sdl/sdlmain.cc` is entirely `#if 0`'d — stage-transition dialogs and
-  "player has quit" chat messages are dead. Joining/hosting a game today is
-  CLI-arg only either way (`-x`/`option_game_to_join`/`option_game_to_host`);
-  even the Xt/Xaw man page's own BUGS section flagged this as unfinished
-  upstream, so there's no complete old reference to lean on here — Tk's
-  `popup_chat`/`join_game`/`host_game` (`tkconq.tcl:~1708-1747`) is the
-  more complete (if still minimal) example. Networking itself is already
-  platform-agnostic (`kernel/tp.cc`/`socket.cc`); this is UI plumbing on
-  top of it, equally needed everywhere.
 - [ ] **About/info box** — **(mostly shared; only branding/OS-version
   detail would differ per platform)**. Absent in both old UIs too (Xt/Xaw
   only ever printed version/license to the terminal; Tk's "About Xconq…"
@@ -202,11 +192,28 @@ Roughly in build order:
   real audio, only a system beep (`XBell()` in Xt/Xaw, Tcl `bell` in Tk);
   `sdlconq`'s `beep()` (`sdl/sdlmain.cc`) matches that precedent already
   (just a `printf`). Not a regression worth prioritizing on any platform.
-- [ ] **Movies/cutscenes** — **(shared)**, lowest priority. `schedule_movie()`/
+- [ ] **Movies/cutscenes** — **(shared)**, low priority. `schedule_movie()`/
   `play_movies()` are `#if 0`'d in `sdl/sdlmain.cc`; unclear either old UI
   ever finished this either (an unused `movie_sound` enum value in both
   suggests it was aspirational there too). Probably fine to leave disabled
   indefinitely unless a specific game module needs it.
+- [ ] **Multiplayer UI feedback** — **(shared)**, **deprioritized further
+  as of `master`'s `27d5807`**. `check_network()` in `sdl/sdlmain.cc` is
+  entirely `#if 0`'d — stage-transition dialogs and "player has quit" chat
+  messages are dead. Joining/hosting a game today is CLI-arg only either
+  way (`-x`/`option_game_to_join`/`option_game_to_host`); even the Xt/Xaw
+  man page's own BUGS section flagged this as unfinished upstream, so
+  there's no complete old reference to lean on here — Tk's
+  `popup_chat`/`join_game`/`host_game` (`tkconq.tcl:~1708-1747`) is the
+  more complete (if still minimal) example. This used to be tagged plain
+  **(shared)**, but `ARCHITECTURE.md`/`MODERNIZATION-PLAN.md` §10 (merged
+  into `master` after this branch started) call for the legacy lockstep
+  protocol this UI layer sits on top of (`kernel/tp.cc`/`socket.cc`) to be
+  **removed outright, not bridged**, once the new server-authoritative
+  WebSocket/JSON protocol lands. Building real UI on top of a protocol
+  that's slated for deletion is wasted effort — lowest priority of
+  everything on this list, below sound and movies, until that
+  rearchitecture direction is further along (or reversed).
 
 ## 6. Packaged sdlconq as a real, relocatable .app bundle
 
@@ -221,11 +228,21 @@ identifier `org.xconq.sdlconq`, version substituted from the top-level
 `tcltk/` client's own copy, for higher-resolution source art — nothing
 beyond 48×48 exists anywhere; the same hex-map-and-city-skyline artwork
 appears across every historical UI (`sdl/Xconq.ico`, `curses/Xconq.ico`,
-the old `tcltk/Xconq.ico`). Generated `sdl/Xconq.icns` from that 48×48
-source via `sips`/`iconutil` (nearest-neighbor upscale to keep the pixel
-art crisp rather than blurring it) — looks correct at Dock/menu-bar size,
-soft at Launchpad/Finder large-icon size. Real higher-res art is a
-follow-up, not a blocker.
+the old `tcltk/Xconq.ico`). `sdl/Xconq.ico` is a multi-entry Windows icon
+(15 entries: every combination of 16/32/48px at 1/4/8/24/32bpp) — the
+first pass here missed that and extracted the 1bpp monochrome 48×48
+entry, then hand-colored the two hexagon backgrounds green/blue as a
+workaround. Redone properly: the file already has a genuine full-color
+48×48 32bpp entry (green city hexagon, cyan ship hexagon, hand-drawn, not
+a recolor), manually decoded from the ICO's raw BITMAPINFOHEADER data
+(Pillow's ICO reader doesn't expose a way to pick a specific bpp variant
+at a given size) and used as the `sdl/Xconq.icns` source instead —
+supersedes the flood-fill hack. Generated via `sips`/`iconutil`
+(nearest-neighbor upscale to keep the pixel art crisp rather than
+blurring it) — looks correct at Dock/menu-bar size, soft at
+Launchpad/Finder large-icon size, same caveat as before just with real
+color now. `sdl/Xconq.ico` itself (the shared legacy asset
+`curses/`/Windows resources still use) is untouched.
 
 **Relocatability** (the part that makes this a real bundle, not just
 chrome): rather than a wrapper-script trick, added a small
