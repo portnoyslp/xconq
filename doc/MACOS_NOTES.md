@@ -125,13 +125,14 @@ a native-only approach.
 
 Roughly in build order:
 
-- [ ] **App packaging** — **(macOS-specific)**. Wrap `sdlconq` as a real
-  `.app` bundle (`MACOSX_BUNDLE` in `sdl/CMakeLists.txt`, an `Info.plist`,
-  an `.icns` icon). Foundational for a Mac release — everything else feels
-  more like "a real Mac app" once this exists (Dock icon, `Cmd-Q` quit
-  semantics, double-click launch instead of terminal-only). A Linux release
-  would need its own, unrelated packaging work (`.desktop` file, AppImage/
-  Flatpak, etc.) — not reusable from this item, just an analogous one.
+- [x] **App packaging** — **(macOS-specific)**. *(done — see §6 below.)*
+  ~~Wrap `sdlconq` as a real `.app` bundle (`MACOSX_BUNDLE` in
+  `sdl/CMakeLists.txt`, an `Info.plist`, an `.icns` icon). Foundational for
+  a Mac release — everything else feels more like "a real Mac app" once
+  this exists (Dock icon, `Cmd-Q` quit semantics, double-click launch
+  instead of terminal-only). A Linux release would need its own, unrelated
+  packaging work (`.desktop` file, AppImage/Flatpak, etc.) — not reusable
+  from this item, just an analogous one.~~
 - [ ] **Menu bar** — **(shared design, per-platform implementation)**.
   Nothing to port 1:1 — Xt/Xaw never had a real menu bar (see the closeup
   item below), and Tk's menu bar was never Mac-native. But Tk's menu
@@ -207,10 +208,60 @@ Roughly in build order:
   suggests it was aspirational there too). Probably fine to leave disabled
   indefinitely unless a specific game module needs it.
 
+## 6. Packaged sdlconq as a real, relocatable .app bundle
+
+`sdlconq` was a bare Unix executable — no Dock icon, no double-click
+launch, no `Cmd-Q`. Added `MACOSX_BUNDLE` packaging (`sdl/CMakeLists.txt`,
+gated behind a new `XCONQ_MACOS_BUNDLE` option, default `ON` when `APPLE`)
+producing `sdlconq.app` with a real `Info.plist` (`sdl/Info.plist.in`,
+identifier `org.xconq.sdlconq`, version substituted from the top-level
+`XCONQ_VERSION_MAIN`) and icon (`sdl/Xconq.icns`).
+
+**Icon provenance**: searched all of git history, including the deleted
+`tcltk/` client's own copy, for higher-resolution source art — nothing
+beyond 48×48 exists anywhere; the same hex-map-and-city-skyline artwork
+appears across every historical UI (`sdl/Xconq.ico`, `curses/Xconq.ico`,
+the old `tcltk/Xconq.ico`). Generated `sdl/Xconq.icns` from that 48×48
+source via `sips`/`iconutil` (nearest-neighbor upscale to keep the pixel
+art crisp rather than blurring it) — looks correct at Dock/menu-bar size,
+soft at Launchpad/Finder large-icon size. Real higher-res art is a
+follow-up, not a blocker.
+
+**Relocatability** (the part that makes this a real bundle, not just
+chrome): rather than a wrapper-script trick, added a small
+`#ifdef APPLE`-gated function to `sdl/sdlunix.cc`,
+`resolve_bundle_library_path()`, called at the very top of `main()`. It
+resolves `argv[0]`, checks for `/Contents/MacOS/` in the path, and — if
+found and `XCONQLIB` isn't already set — points `XCONQLIB` at the bundle's
+own `Contents/Resources/lib`. `kernel/init.cc`'s `init_library_path()`
+already reads `XCONQLIB` from the environment, and `kernel/unix.cc`'s
+`default_images_pathname()` already looks for `<libpath>/../images`
+first — so setting that one env var was enough to redirect both `lib/`
+and `images/` lookups with zero kernel changes. (Confirmed while
+researching this: CLAUDE.md's mention of an `XCONQIMAGES` env var override
+is stale — it's never read via `getenv()` anywhere, only used as a literal
+directory-name component.) `lib/`/`images/` are copied — not symlinked —
+into `Contents/Resources/` at build time via a `POST_BUILD` custom
+command, so the bundle is genuinely self-contained.
+
+No code signing — ad-hoc/unsigned is sufficient for local Gatekeeper-
+permitted execution; Developer ID + notarization needs a paid Apple
+Developer account and is a maintainer decision, out of scope here (same
+treatment this branch already gave Windows revival in
+`MODERNIZATION-PLAN.md`).
+
+One workflow-visible side effect worth knowing: with `XCONQ_MACOS_BUNDLE`
+on (the default on macOS), the built binary now lives at
+`build/sdl/sdlconq.app/Contents/MacOS/sdlconq` instead of flat at
+`build/sdl/sdlconq` — direct invocation for debugging (lldb, headless
+smoke tests, etc.) needs the full bundle path, or use `open
+build/sdl/sdlconq.app` for a real launch. Set `-DXCONQ_MACOS_BUNDLE=OFF`
+to get the old flat-binary layout back without any code change.
+
 ## Verified locally (this Mac, no XQuartz installed)
 
-- `otool -L build/sdl/sdlconq` shows only `libSDL3`/`libSDL3_ttf`/system
-  libs — no X11.
+- `otool -L build/sdl/sdlconq.app/Contents/MacOS/sdlconq` shows only
+  `libSDL3`/`libSDL3_ttf`/system libs — no X11.
 - Full build (curses + SDL) succeeds; quick ctest lane passes 558/559 (the
   one failure, `check-consistency-cmd`, is pre-existing and unrelated —
   a docs/source drift check).
@@ -218,3 +269,10 @@ Roughly in build order:
   default font resolves to Menlo, `-font`/`-fontsize` override it, and a
   bad `-font` path falls back to the bitmap font with a warning instead of
   erroring.
+- Bundle structure confirmed (`Contents/MacOS/sdlconq`,
+  `Contents/Resources/{lib,images,Xconq.icns}`, `Contents/Info.plist`).
+- **Relocatability actually verified, not assumed**: copied `sdlconq.app`
+  to `/tmp` (far from the source checkout) and confirmed under lldb that
+  `getenv("XCONQLIB")` resolved to the copied bundle's own
+  `Contents/Resources/lib`, and the game ran correctly from there with no
+  "could not find library" errors.

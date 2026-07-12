@@ -20,12 +20,16 @@ int blinking_curunit = FALSE;
 
 #include <unistd.h>
 #include <sys/stat.h>
+#include <limits.h>
 
 /* Local function declarations. */
 
 static void accept_all_remotes(void);
 static void parse_font_options(int *argcp, char *argv[]);
 static void resolve_default_font(void);
+#ifdef APPLE
+static void resolve_bundle_library_path(const char *argv0);
+#endif
 
 /* The main program. */
 
@@ -36,6 +40,9 @@ main(int argc, char *argv[])
 	/* Dummy reference to get libraries pulled in */
 	if (argc == -1)
 	    cmd_error(NULL, NULL);
+#ifdef APPLE
+	resolve_bundle_library_path(argv[0]);
+#endif
 	init_library_path(NULL);
 	/* Fiddle with game module structures. */
 	clear_game_modules();
@@ -246,6 +253,32 @@ resolve_default_font(void)
     }
 #endif
 }
+
+#ifdef APPLE
+/* Point XCONQLIB at the library path bundled with the app directory,
+   unless XCONQLIB is already set. */
+
+static void
+resolve_bundle_library_path(const char *argv0)
+{
+    char resolved[PATH_MAX];
+    char libpath[PATH_MAX];
+    char *contents_end;
+    struct stat statbuf;
+
+    if (getenv("XCONQLIB") != NULL)
+      return;
+    if (realpath(argv0, resolved) == NULL)
+      return;
+    contents_end = strstr(resolved, "/Contents/MacOS/");
+    if (contents_end == NULL)
+      return;
+    *contents_end = '\0';
+    snprintf(libpath, sizeof(libpath), "%s/Contents/Resources/lib", resolved);
+    if (stat(libpath, &statbuf) == 0 && S_ISDIR(statbuf.st_mode))
+      setenv("XCONQLIB", libpath, 1);
+}
+#endif /* APPLE */
 
 /* Wait for all the players to join, set up each one as it comes in. */
 
