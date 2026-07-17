@@ -78,14 +78,13 @@ main(int argc, char *argv[])
 
 	initial_ui_init();
 
-	/* The new game dialog is not supported in sdlconq yet. */
-	if (using_sdl) {
-		option_popup_new_game_dialog = FALSE;
-	}
 	if (option_popup_new_game_dialog) {
-		/* Do all game setup via the GUI. */
+		/* Picks mainmodule and applies its variants; doesn't launch
+		   the game itself, so the join/host/solo logic below still
+		   runs afterward. */
 		popup_game_dialog();
-	} else if (option_game_to_join != NULL) {
+	}
+	if (option_game_to_join != NULL) {
 		/* Joining a game, using the command line. */
 		/* (should detect attempts to ask for options that will be ignored) */
 		/* (should be able to ask for position among sides) */

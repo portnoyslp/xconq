@@ -159,7 +159,9 @@ Roughly in build order:
   this — the prefs file format, the dialog contents, the font-apply logic
   — is macOS-specific; only the bundled-default-font *value* is (§4's
   `APPLE`-gated Menlo path), and that's already isolated correctly.
-- [ ] **New-game / setup dialog** — **(shared)**, replacing the
+- [x] **New-game / setup dialog** — **(shared)**. *(done, first pass —
+  see §7 below; picture previews and interactive player assignment
+  deferred, tracked as new follow-up items.)* ~~replacing the
   `popup_game_dialog()` stub. Both old UIs did this for real: Xt/Xaw's
   `popup_game()` (`x11/xinit.c:~1040-1330` — game list with blurbs,
   per-game variant widgets, instructions pane, full player-assignment
@@ -168,7 +170,22 @@ Roughly in build order:
   `interpret_variants()` (`sdl/sdlmain.cc`, currently `#if 0`'d) actually
   reimplemented — right now there's no way to configure game options
   (world size, real-time, economy/supply toggles, etc.) before starting a
-  game at all, on any platform. Pure game-setup logic, no macOS dependency.
+  game at all, on any platform. Pure game-setup logic, no macOS
+  dependency.~~
+- [ ] **New-game dialog: module preview pictures** — **(shared)**, follow-up
+  to the item above. `Module.picturename` (`kernel/module.h`) is available
+  but unused by the new dialog — it's text-only (title + blurb) for now.
+  Loading and displaying per-game preview images is a reasonable next
+  enhancement, not required for the dialog to be useful.
+- [ ] **New-game dialog: interactive player-assignment table** —
+  **(shared)**, follow-up to the item above. The dialog picks the module
+  and variants only; side/player type (human/AI/none) still comes entirely
+  from the existing default-player/AI auto-assignment
+  (`set_players_from_options()` in `kernel/cmdline.cc`, unchanged and still
+  working). Both historical UIs treated this as a large, separate
+  subsystem (Xt/Xaw's full player-assignment table in `popup_game()`,
+  Tk's `popup_player_dialog`) — worth doing properly rather than folding
+  into the first pass.
 - [ ] **Unit/side closeup windows** — **(shared)**. Both old UIs had these
   as a real subsystem — Xt/Xaw's `x11/xcloseup.c` (3000+ lines:
   `UnitCloseup`, `SideCloseup`, `CloseupSummary` types) is the more
@@ -275,6 +292,79 @@ smoke tests, etc.) needs the full bundle path, or use `open
 build/sdl/sdlconq.app` for a real launch. Set `-DXCONQ_MACOS_BUNDLE=OFF`
 to get the old flat-binary layout back without any code change.
 
+## 7. Real New Game / setup dialog (first pass)
+
+Running `sdlconq` with no arguments always silently loaded `STANDARD_GAME`
+("standard") with default variants — no game picker, no variant
+configuration, ever, on any platform. Two things compounded to cause
+this: `popup_game_dialog()` (`sdl/sdlmain.cc`) was a literal stub that
+drew a random-colored rectangle, and it was **never actually called** —
+`sdlunix.cc`'s `main()` unconditionally did
+`if (using_sdl) option_popup_new_game_dialog = FALSE;`, and `using_sdl` is
+always `TRUE` for this UI. Removed that override.
+
+Also fixed the control flow: calling `popup_game_dialog()` used to be a
+dead end (the `if (option_popup_new_game_dialog) {...} else if
+(option_game_to_join) {...} else {...}` chain meant nothing loaded a game
+afterward). It's now a prefix step — `popup_game_dialog()` sets
+`mainmodule` and applies chosen variants, then the existing join/host/solo
+logic runs afterward exactly as before, just picking up those choices
+instead of always defaulting.
+
+**Architecture**: this dialog runs *before* any `Screen`/`Map`/game state
+exists (`main()` calls it ahead of `load_all_modules()`), so it can't
+reuse the in-game `Panel`/`SDLButton`/`ask_string` widgets — all of those
+assume an active `Screen*`. It's a small, self-contained SDL event loop
+(`SDL_WaitEvent`, drawing straight onto `mscreen` via `draw_string()`/
+`SDL_FillSurfaceRect`/`SDL_UpdateWindowSurface`) with its own hand-rolled
+click hit-testing — not a new general widget system, just this one
+pre-game screen.
+
+**What it does**: `collect_possible_games()` (`kernel/ui.cc`, reads
+`lib/game.dir`, ~89 entries including the intro/standard modules —
+already existed, was simply never called from `sdl/`) populates a
+scrollable list. Selecting a game shows its blurb (word-wrapped to a
+fixed character width — no real glyph-width measurement, "basic" scope)
+and a toggle row per `Module.variants[]` entry (simple variants toggle
+0/1; the special `world-size` variant gets a basic +10-per-click stepper
+instead of independent width/height/circumference entry). Start applies
+the choice via `mainmodule = <chosen>` and `net_set_variant_value()` per
+variant — the exact same kernel entry points the `-g`/`-v` CLI flags
+already use (`kernel/cmdline.cc`), so no kernel changes were needed at
+all; the gap was entirely the missing SDL-side UI.
+
+**Deferred** (tracked as new items in §5's list above): module preview
+pictures, and an interactive player-assignment table — the existing
+default-player/AI auto-assignment keeps working underneath unchanged.
+
+The dialog's code (all the `gamedlg_*` helpers and `popup_game_dialog()`
+itself) lives in its own file, `sdl/sdlgamedlg.cc`, not `sdlmain.cc` —
+split out afterward since `sdlmain.cc` was already the largest file in
+`sdl/` by a wide margin (3139 lines) and the dialog code was fully
+self-contained (only touches things already exposed as proper externs:
+`mscreen`, `mainmodule`, `possible_games`, etc.), matching the existing
+per-concern file convention (`sdlcmd.cc`, `sdlscreen.cc`, `sdlmap.cc`,
+`sdluact.cc`, ...).
+
+Two fixes since the initial pass, both in `sdl/sdlgamedlg.cc`:
+
+- **Cursor visibility**: `initial_ui_init()` hides the OS cursor in favor
+  of the in-game custom cursor sprite, but that sprite is only ever drawn
+  from the `Screen`-based render path (`sdlscreen.cc`) — nonexistent while
+  this dialog is up, so the cursor was simply invisible. `popup_game_dialog()`
+  now calls `SDL_ShowCursor()` on entry and `SDL_HideCursor()` before
+  returning, handing back to the normal behavior once the real game starts.
+- **Scrollbar**: the game list (89 entries) only had mouse-wheel scrolling
+  with no visual indicator of position. SDL has no built-in widgets of any
+  kind (confirmed — it's strictly windowing/graphics/input, true of
+  `SDL_ttf`/`SDL_image`/`SDL_mixer` too), so this is hand-rolled the same
+  way as everything else here: a track + proportional thumb drawn in
+  `gamedlg_draw_list()`, click-to-jump and drag-to-scroll via
+  `gamedlg_scroll_from_y()` (shared by both `SDL_EVENT_MOUSE_BUTTON_DOWN`
+  and `SDL_EVENT_MOUSE_MOTION` with `SDL_BUTTON_LMASK` held), geometry
+  centralized in `gamedlg_scrollbar_track()` so drawing and hit-testing
+  can't drift apart.
+
 ## Verified locally (this Mac, no XQuartz installed)
 
 - `otool -L build/sdl/sdlconq.app/Contents/MacOS/sdlconq` shows only
@@ -293,3 +383,25 @@ to get the old flat-binary layout back without any code change.
   `getenv("XCONQLIB")` resolved to the copied bundle's own
   `Contents/Resources/lib`, and the game ran correctly from there with no
   "could not find library" errors.
+- **New Game dialog**: this session's environment has no reliable way to
+  drive real mouse/window interaction (screenshot tooling didn't surface
+  the actual window content, and `osascript`-based accessibility is
+  denied), so the interactive click-through itself needs your own
+  eyeballs/mouse. What *was* verified directly: `collect_possible_games()`
+  populates 89 real entries under lldb; a breakpoint-driven call confirmed
+  `mainmodule` gets set correctly and *persists* when pointed at a
+  non-default module (`ww2s-eur-42`); and running the equivalent `-g
+  ww2s-eur-42` CLI path (same `mainmodule` global, same kernel loading
+  code) confirmed that specific module actually loads and reaches the
+  normal running state rather than silently falling back to "standard".
+  Compiles with zero new warnings. Please click through it once for real
+  before considering this fully done.
+- **Cursor fix + scrollbar**: cursor fix confirmed by you directly (was
+  invisible, now visible). Scrollbar geometry/hit-testing verified via
+  lldb by calling `gamedlg_scroll_from_y()`/`gamedlg_in_scrollbar_column()`
+  with known inputs and checking against hand-computed expected values
+  (e.g. `gamedlg_scroll_from_y()` at the track's top/middle/bottom/
+  out-of-bounds y-coordinates all matched exactly; column detection
+  correctly distinguished the scrollbar from the rest of the list) — same
+  screenshot/accessibility limitations as above mean the actual
+  click-and-drag feel still wants your own pass.

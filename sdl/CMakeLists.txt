@@ -3,6 +3,7 @@
 set(SDLCONQ_SOURCES
     sdlunix.cc
     sdlmain.cc
+    sdlgamedlg.cc
     sdlinit.cc
     sdlcmd.cc
     sdlscreen.cc

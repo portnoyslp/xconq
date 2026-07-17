@@ -1864,13 +1864,7 @@ low_notify(Side *side, char *str)
     printf("To %d: %s\n", side->id, str);
 }
 
-extern void popup_game_dialog(void);
-
-void
-popup_game_dialog(void)
-{
-    draw_rect(mscreen, 100, 100, 300, 300, random_color(sscreen->surf));
-}
+extern void popup_game_dialog(void);	/* sdl/sdlgamedlg.cc */
 
 void
 init_redraws(void)
